@@ -13,9 +13,17 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// CORS 設定
+// 開発時に Vite の --host を使うと、Origin が http://10.x.x.x:5173 などになり
+// localhost固定だとブラウザからAPIがブロックされやすい。
+// そのため、production 以外は Origin を広めに許可する。
+const isProduction = process.env.NODE_ENV === "production";
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: isProduction
+      ? process.env.CLIENT_URL || "http://localhost:5173"
+      : true,
   }),
 );
 app.use(express.json());

@@ -42,7 +42,19 @@ function WebSearch() {
       });
       setResults(res.data.results || []);
     } catch (err) {
-      setError("Web検索に失敗しました");
+      // 失敗理由を表示（CORS/認証/サーバエラー切り分け用）
+      const status = err?.response?.status;
+      const serverMessage = err?.response?.data?.error;
+      if (status) {
+        setError(
+          `Web検索に失敗しました（HTTP ${status}）${serverMessage ? `: ${serverMessage}` : ""}`,
+        );
+      } else {
+        // response がない場合は、CORSやネットワーク到達不可の可能性が高い
+        setError(
+          "Web検索に失敗しました（ネットワーク/CORSの可能性）。サーバURLとCORS設定を確認してください。",
+        );
+      }
     }
 
     setLoading(false);
