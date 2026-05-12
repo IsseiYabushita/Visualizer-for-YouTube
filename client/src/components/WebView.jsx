@@ -166,25 +166,25 @@ function WebView({ url, onClose }) {
           </p>
         )}
 
-        {/* iframe がブロックされた時の代替（テキスト表示） */}
-        {iframeError && (
-          <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
-            <button
-              onClick={handleOpenAsText}
-              disabled={readerLoading}
-              style={{
-                padding: "0.4rem 1rem",
-                background: readerLoading ? "#333" : "#555",
-                color: readerLoading ? "#777" : "#fff",
-                border: "none",
-                borderRadius: "4px",
-                cursor: readerLoading ? "not-allowed" : "pointer",
-              }}
-            >
-              {readerLoading ? "取得中..." : "テキストで開く"}
-            </button>
-          </div>
-        )}
+        {/* 代替（テキスト表示）
+            注意: X-Frame-Options/CSP によるブロックは iframe の onError が発火しない場合がある。
+            そのため「困ったら押せる」ようにボタンは常に表示しておく。 */}
+        <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
+          <button
+            onClick={handleOpenAsText}
+            disabled={readerLoading}
+            style={{
+              padding: "0.4rem 1rem",
+              background: readerLoading ? "#333" : "#555",
+              color: readerLoading ? "#777" : "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: readerLoading ? "not-allowed" : "pointer",
+            }}
+          >
+            {readerLoading ? "取得中..." : "テキストで開く"}
+          </button>
+        </div>
 
         {readerError && (
           <p
