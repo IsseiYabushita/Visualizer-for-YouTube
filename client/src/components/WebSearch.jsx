@@ -31,6 +31,12 @@ function WebSearch() {
     const q = query.trim();
     if (!q) return;
 
+    // 念のため（トークンがない/壊れていると 403 になりがち）
+    if (!token) {
+      setError("ログイン情報がありません。ログインし直してください。");
+      return;
+    }
+
     setLoading(true);
     setError("");
     setResults([]);
