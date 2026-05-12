@@ -3,6 +3,32 @@ import api from "../api";
 import { useAuth } from "../context/AuthContext";
 import WebView from "./WebView";
 
+const normalizeToHttpUrl = (value) => {
+  const raw = (value || "").trim();
+  if (!raw) return null;
+
+  // 1) まずはそのまま URL として解釈
+  try {
+    const u = new URL(raw);
+    if (u.protocol === "http:" || u.protocol === "https:") return u.toString();
+    return null;
+  } catch {
+    // 2) スキームなしのドメインっぽい入力は https を補ってみる
+    //    例: example.com, example.com/path, sub.example.co.jp?a=1
+    //    ※ 空白がある場合は検索ワードとみなす
+    if (/\s/.test(raw)) return null;
+    if (!raw.includes(".")) return null;
+    if (raw.startsWith("/")) return null;
+
+    try {
+      const u = new URL(`https://${raw}`);
+      return u.toString();
+    } catch {
+      return null;
+    }
+  }
+};
+
 // Web検索タブ用コンポーネント
 // 目的: サーバ側でWeb検索→結果をアプリ内で表示（iframe）し、ブラウザのタブタイトルをアプリのまま維持する
 function WebSearch() {
@@ -30,6 +56,15 @@ function WebSearch() {
 
     const q = query.trim();
     if (!q) return;
+
+    // URLが直接入力された場合は検索せず、そのままアクセスする
+    const directUrl = normalizeToHttpUrl(q);
+    if (directUrl) {
+      setError("");
+      setResults([]);
+      setSelectedUrl(directUrl);
+      return;
+    }
 
     // 念のため（トークンがない/壊れていると 403 になりがち）
     if (!token) {
@@ -79,7 +114,7 @@ function WebSearch() {
       >
         <input
           type="text"
-          placeholder="Webを検索..."
+          placeholder="Webを検索 / URLを入力..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{
