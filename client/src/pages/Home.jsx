@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import Stats from "./Stats";
 import VideoPlayer from "../components/VideoPlayer";
 import Channels from "./Channels";
+import WebSearch from "../components/WebSearch";
 import timeAgo from "../utils/timeAgo";
 import {
   BarChart,
@@ -44,6 +45,10 @@ function Home() {
   } = useInfiniteScroll(savedVideos, 12);
 
   useEffect(() => {
+    // タブタイトルを常にアプリ名に固定しておく
+    // 理由: Web検索結果をアプリ内(iframe)で開いても、ブラウザのウィンドウタイトルを維持したいため
+    document.title = "visualizer-for-youtube";
+
     fetchSavedVideos();
     fetchWeeklyDuration();
     // 30秒ごとにグラフを自動更新
@@ -226,7 +231,7 @@ function Home() {
             alignItems: "center",
           }}
         >
-          {["channels", "search", "saved", "stats"].map((tab) => (
+          {["channels", "search", "web", "saved", "stats"].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -242,9 +247,11 @@ function Home() {
                 ? "チャンネル"
                 : tab === "search"
                   ? "検索"
-                  : tab === "saved"
-                    ? "保存済み"
-                    : "統計"}
+                  : tab === "web"
+                    ? "Web検索"
+                    : tab === "saved"
+                      ? "保存済み"
+                      : "統計"}
             </button>
           ))}
         </div>
@@ -649,6 +656,9 @@ function Home() {
             )}
           </div>
         )}
+
+        {/* Web検索タブ */}
+        {activeTab === "web" && <WebSearch />}
 
         {/* 保存済みタブ */}
         {activeTab === "saved" && (
