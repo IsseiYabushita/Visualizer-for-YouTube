@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
+import api from "../api";
+import { useAuth } from "../context/AuthContext";
 
 // Webページをアプリ内で表示するためのコンポーネント
 // 目的: 外部サイトへ“遷移”せず iframe 内で表示することで、ブラウザのタブタイトル（window title）をアプリのまま維持する
 function WebView({ url, onClose }) {
+  const { token } = useAuth();
+
   const [iframeError, setIframeError] = useState(false);
+  const [readerLoading, setReaderLoading] = useState(false);
+  const [readerError, setReaderError] = useState("");
+  const [readerTitle, setReaderTitle] = useState("");
+  const [readerHtml, setReaderHtml] = useState("");
 
   // 安全のため、http/https 以外は弾く
   const safeUrl = useMemo(() => {
@@ -21,6 +29,42 @@ function WebView({ url, onClose }) {
     // （iframe の中のページタイトルは親のタイトルに影響しない）
     document.title = "visualizer-for-youtube";
   }, []);
+
+  const handleOpenAsText = async () => {
+    // 目的: iframe をブロックするサイトでも最低限「内容を読める」ようにする
+    // 注意: これは外部サイトの“見た目そのまま表示”ではなく、安全のためにサニタイズしたHTMLを表示する
+    if (!safeUrl) return;
+    if (!token) {
+      setReaderError("ログイン情報がありません。ログインし直してください。");
+      return;
+    }
+
+    setReaderLoading(true);
+    setReaderError("");
+    setReaderTitle("");
+    setReaderHtml("");
+
+    try {
+      const res = await api.get(
+        `/api/web/fetch?url=${encodeURIComponent(safeUrl)}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      setReaderTitle(res.data.title || "");
+      setReaderHtml(res.data.html || "");
+    } catch (err) {
+      const status = err?.response?.status;
+      const serverMessage = err?.response?.data?.error;
+      setReaderError(
+        status
+          ? `テキスト表示に失敗しました（HTTP ${status}）${serverMessage ? `: ${serverMessage}` : ""}`
+          : "テキスト表示に失敗しました（ネットワーク/CORSの可能性）",
+      );
+    }
+
+    setReaderLoading(false);
+  };
 
   if (!safeUrl) {
     return (
@@ -121,7 +165,55 @@ function WebView({ url, onClose }) {
             このサイトは iframe で表示できない可能性があります。
           </p>
         )}
+
+        {/* iframe がブロックされた時の代替（テキスト表示） */}
+        {iframeError && (
+          <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
+            <button
+              onClick={handleOpenAsText}
+              disabled={readerLoading}
+              style={{
+                padding: "0.4rem 1rem",
+                background: readerLoading ? "#333" : "#555",
+                color: readerLoading ? "#777" : "#fff",
+                border: "none",
+                borderRadius: "4px",
+                cursor: readerLoading ? "not-allowed" : "pointer",
+              }}
+            >
+              {readerLoading ? "取得中..." : "テキストで開く"}
+            </button>
+          </div>
+        )}
+
+        {readerError && (
+          <p
+            style={{
+              margin: "0.5rem 0 0",
+              color: "#ff4444",
+              fontSize: "0.85rem",
+            }}
+          >
+            {readerError}
+          </p>
+        )}
       </div>
+
+      {/* リーダーモード（サーバでサニタイズしたHTML表示） */}
+      {readerHtml && (
+        <div style={{ padding: "1rem" }}>
+          {readerTitle && (
+            <h2 style={{ margin: "0 0 1rem", fontSize: "1.2rem" }}>
+              {readerTitle}
+            </h2>
+          )}
+          <div
+            style={{ color: "#ddd", lineHeight: 1.6 }}
+            // サーバ側で sanitize-html 済みのため、ここで dangerouslySetInnerHTML を使う
+            dangerouslySetInnerHTML={{ __html: readerHtml }}
+          />
+        </div>
+      )}
 
       {/* iframe本体 */}
       <div style={{ height: "70vh", background: "#0f0f0f" }}>
