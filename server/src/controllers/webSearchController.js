@@ -5,12 +5,45 @@ const sanitizeHtml = require("sanitize-html");
 
 // DuckDuckGo のHTML検索結果を取得する（APIキー不要で始めやすい）
 // 注意: HTML構造が変わると壊れる可能性があるため、最低限のフォールバックも入れる
-const fetchHtml = (url, redirectsLeft = 3) => {
-  return new Promise((resolve, reject) => {
-    // Accept-Encoding を identity にして、gzip/br の解凍処理を不要にする
-    const req = https.request(
-      url,
-      {
+const fetchHtml = async (url, redirectsLeft = 3) => {
+  // DNS を直接叩いて hosts ファイルをバイパスし、IPで接続する
+  const u = new URL(url);
+  const isHttps = u.protocol === "https:";
+
+  // 再帰的にリダイレクトを追うための内部実装
+  const doRequest = async (targetUrl, redirectsLeftInner) => {
+    const tu = new URL(targetUrl);
+    const protoHttps = tu.protocol === "https:";
+
+    // 解決: A/AAAA を優先して取得（hosts を無視）
+    let addrs = [];
+    try {
+      const a4 = await dns.resolve4(tu.hostname).catch(() => []);
+      addrs = addrs.concat(a4.map((a) => ({ address: a, family: 4 })));
+    } catch {}
+    try {
+      const a6 = await dns.resolve6(tu.hostname).catch(() => []);
+      addrs = addrs.concat(a6.map((a) => ({ address: a, family: 6 })));
+    } catch {}
+
+    if (!addrs || addrs.length === 0) {
+      throw new Error("DNS解決に失敗しました");
+    }
+
+    // プライベートIPを避ける
+    const usable = addrs.find((a) => !isPrivateIp(a.address));
+    if (!usable)
+      throw new Error("到達先がプライベートIPのため接続を拒否しました");
+
+    const ip = usable.address;
+
+    const requestModule = protoHttps ? https : require("http");
+
+    return await new Promise((resolve, reject) => {
+      const options = {
+        host: ip,
+        port: tu.port || (protoHttps ? 443 : 80),
+        path: tu.pathname + tu.search,
         method: "GET",
         headers: {
           "User-Agent":
@@ -18,34 +51,50 @@ const fetchHtml = (url, redirectsLeft = 3) => {
           "Accept-Language": "ja,en;q=0.8",
           Accept: "text/html",
           "Accept-Encoding": "identity",
+          Host: tu.hostname,
         },
-      },
-      (res) => {
+      };
+
+      // HTTPS の場合は SNI を元のホスト名で送る
+      if (protoHttps) options.servername = tu.hostname;
+
+      const req = requestModule.request(options, (res) => {
         // リダイレクト対応
         if (
           res.statusCode &&
           [301, 302, 303, 307, 308].includes(res.statusCode) &&
           res.headers.location
         ) {
-          if (redirectsLeft <= 0) {
+          if (redirectsLeftInner <= 0) {
             reject(new Error("Too many redirects"));
             return;
           }
-          const nextUrl = new URL(res.headers.location, url).toString();
-          resolve(fetchHtml(nextUrl, redirectsLeft - 1));
+          const nextUrl = new URL(res.headers.location, targetUrl).toString();
+          // 再帰
+          doRequest(nextUrl, redirectsLeftInner - 1)
+            .then(resolve)
+            .catch(reject);
           return;
         }
 
         let body = "";
         res.on("data", (chunk) => (body += chunk));
-        res.on("end", () => resolve(body));
+        res.on("end", () =>
+          resolve({
+            body,
+            statusCode: res.statusCode || 0,
+            headers: res.headers,
+          }),
+        );
         res.on("error", reject);
-      },
-    );
+      });
 
-    req.on("error", reject);
-    req.end();
-  });
+      req.on("error", reject);
+      req.end();
+    });
+  };
+
+  return doRequest(url, redirectsLeft);
 };
 
 // http/https のみ許可する（変なスキームを弾いて安全寄りにする）
@@ -208,7 +257,20 @@ const ensureSafeTargetUrl = async (rawUrl) => {
 
   // hostname の DNS 解決でプライベートIPに向くものを拒否
   try {
-    const addrs = await dns.lookup(hostname, { all: true });
+    let addrs = [];
+    try {
+      const a4 = await dns.resolve4(hostname).catch(() => []);
+      addrs = addrs.concat(a4.map((a) => ({ address: a, family: 4 })));
+    } catch {}
+    try {
+      const a6 = await dns.resolve6(hostname).catch(() => []);
+      addrs = addrs.concat(a6.map((a) => ({ address: a, family: 6 })));
+    } catch {}
+
+    if (!addrs || addrs.length === 0) {
+      return { ok: false, reason: "URLの解決に失敗しました" };
+    }
+
     for (const a of addrs) {
       if (isPrivateIp(a.address)) {
         return {
@@ -218,7 +280,6 @@ const ensureSafeTargetUrl = async (rawUrl) => {
       }
     }
   } catch {
-    // DNS失敗は拒否（曖昧に通すと危険）
     return { ok: false, reason: "URLの解決に失敗しました" };
   }
 
@@ -242,46 +303,40 @@ const fetchWebPage = async (req, res) => {
   }
 
   try {
-    // Node v24 では fetch が標準で使える
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    // fetch の代わりに hosts を無視する fetchHtml を使う
+    const timeoutMs = 10000;
+    const p = fetchHtml(safe.url, 5);
+    const response = await Promise.race([
+      p,
+      new Promise((_, rej) =>
+        setTimeout(() => rej(new Error("timeout")), timeoutMs),
+      ),
+    ]);
 
-    const response = await fetch(safe.url, {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "visualizer-for-youtube/1.0",
-        Accept: "text/html,application/xhtml+xml",
-        "Accept-Language": "ja,en;q=0.8",
-      },
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
+    // response は { body, statusCode, headers }
+    if (!response || !response.statusCode || response.statusCode >= 400) {
       return res
         .status(502)
-        .json({ error: `取得に失敗しました（HTTP ${response.status}）` });
+        .json({
+          error: `取得に失敗しました（HTTP ${response?.statusCode || "?"}）`,
+        });
     }
 
-    const contentType = response.headers.get("content-type") || "";
+    const contentType =
+      (response.headers &&
+        (response.headers["content-type"] ||
+          response.headers["Content-Type"])) ||
+      "";
     if (!contentType.includes("text/html")) {
       return res.status(415).json({ error: "HTML以外は表示できません" });
     }
 
     // 巨大レスポンス対策（最大 1MB）
     const MAX_BYTES = 1_000_000;
-    let total = 0;
-    const chunks = [];
-    for await (const chunk of response.body) {
-      total += chunk.length;
-      if (total > MAX_BYTES) {
-        return res.status(413).json({ error: "ページが大きすぎます" });
-      }
-      chunks.push(chunk);
+    const html = response.body || "";
+    if (Buffer.byteLength(html, "utf8") > MAX_BYTES) {
+      return res.status(413).json({ error: "ページが大きすぎます" });
     }
-    const html = Buffer.concat(chunks).toString("utf8");
 
     // title をざっくり抽出（なければURL）
     const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -348,7 +403,8 @@ const searchWeb = async (req, res) => {
 
   try {
     const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(q)}`;
-    const html = await fetchHtml(url);
+    const resp = await fetchHtml(url);
+    const html = resp && resp.body ? resp.body : "";
     const results = parseDuckDuckGoHtml(html, 12);
 
     // 仕様: 画面側が扱いやすいように results 配列で返す
