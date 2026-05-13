@@ -1,10 +1,8 @@
-import YouTube from "react-youtube";
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import api from "../api";
 
 function VideoPlayer({ videoId, videoDbId, token, onClose }) {
   const intervalRef = useRef(null);
-  const [playbackError, setPlaybackError] = useState("");
 
   const handlePlay = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -37,18 +35,7 @@ function VideoPlayer({ videoId, videoDbId, token, onClose }) {
     }
   };
 
-  const handleEnd = () => {
-    handlePause();
-    onClose();
-  };
-
-  const opts = {
-    width: "100%",
-    height: "400",
-    // youtube.com が hosts でブロックされている環境を考慮して nocookie ドメインを優先する
-    host: "https://www.youtube-nocookie.com",
-    playerVars: { autoplay: 1 },
-  };
+  const embedUrl = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0&modestbranding=1&playsinline=1`;
 
   return (
     <div
@@ -90,27 +77,22 @@ function VideoPlayer({ videoId, videoDbId, token, onClose }) {
             ✕ 閉じる
           </button>
         </div>
-        <YouTube
-          videoId={videoId}
-          opts={opts}
-          style={{ width: "100%" }}
-          onPlay={handlePlay}
-          onPause={handlePause}
-          onEnd={handleEnd}
-          onError={() => {
-            handlePause();
-            setPlaybackError(
-              "動画の再生に失敗しました。ネットワーク制限や hosts 設定で YouTube ドメインが遮断されている可能性があります。",
-            );
-          }}
+        <iframe
+          src={embedUrl}
+          title="YouTube video player"
+          width="100%"
+          height="400"
+          style={{ border: "none", display: "block" }}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerPolicy="strict-origin-when-cross-origin"
+          allowFullScreen
+          onLoad={handlePlay}
         />
-        {playbackError && (
-          <p
-            style={{ color: "#ffdede", marginTop: "0.75rem", lineHeight: 1.5 }}
-          >
-            {playbackError}
-          </p>
-        )}
+        <p style={{ color: "#bbb", marginTop: "0.75rem", lineHeight: 1.5 }}>
+          もし自動再生されない場合は、プレイヤー内の再生ボタンを押してください。
+          hosts で youtube.com をブロックしていても、埋め込み先が
+          youtube-nocookie.com なら再生できることがあります。
+        </p>
       </div>
     </div>
   );
