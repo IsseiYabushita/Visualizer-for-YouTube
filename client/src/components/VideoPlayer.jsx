@@ -1,9 +1,10 @@
 import YouTube from "react-youtube";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import api from "../api";
 
 function VideoPlayer({ videoId, videoDbId, token, onClose }) {
   const intervalRef = useRef(null);
+  const [playbackError, setPlaybackError] = useState("");
 
   const handlePlay = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -44,6 +45,8 @@ function VideoPlayer({ videoId, videoDbId, token, onClose }) {
   const opts = {
     width: "100%",
     height: "400",
+    // youtube.com が hosts でブロックされている環境を考慮して nocookie ドメインを優先する
+    host: "https://www.youtube-nocookie.com",
     playerVars: { autoplay: 1 },
   };
 
@@ -94,7 +97,20 @@ function VideoPlayer({ videoId, videoDbId, token, onClose }) {
           onPlay={handlePlay}
           onPause={handlePause}
           onEnd={handleEnd}
+          onError={() => {
+            handlePause();
+            setPlaybackError(
+              "動画の再生に失敗しました。ネットワーク制限や hosts 設定で YouTube ドメインが遮断されている可能性があります。",
+            );
+          }}
         />
+        {playbackError && (
+          <p
+            style={{ color: "#ffdede", marginTop: "0.75rem", lineHeight: 1.5 }}
+          >
+            {playbackError}
+          </p>
+        )}
       </div>
     </div>
   );
