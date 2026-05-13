@@ -6,10 +6,6 @@ const sanitizeHtml = require("sanitize-html");
 // DuckDuckGo のHTML検索結果を取得する（APIキー不要で始めやすい）
 // 注意: HTML構造が変わると壊れる可能性があるため、最低限のフォールバックも入れる
 const fetchHtml = async (url, redirectsLeft = 3) => {
-  // DNS を直接叩いて hosts ファイルをバイパスし、IPで接続する
-  const u = new URL(url);
-  const isHttps = u.protocol === "https:";
-
   // 再帰的にリダイレクトを追うための内部実装
   const doRequest = async (targetUrl, redirectsLeftInner) => {
     const tu = new URL(targetUrl);
@@ -271,13 +267,12 @@ const ensureSafeTargetUrl = async (rawUrl) => {
       return { ok: false, reason: "URLの解決に失敗しました" };
     }
 
-    for (const a of addrs) {
-      if (isPrivateIp(a.address)) {
-        return {
-          ok: false,
-          reason: "ローカル/プライベート宛てURLは許可されていません",
-        };
-      }
+    const hasPublic = addrs.some((a) => !isPrivateIp(a.address));
+    if (!hasPublic) {
+      return {
+        ok: false,
+        reason: "ローカル/プライベート宛てURLは許可されていません",
+      };
     }
   } catch {
     return { ok: false, reason: "URLの解決に失敗しました" };
@@ -315,11 +310,9 @@ const fetchWebPage = async (req, res) => {
 
     // response は { body, statusCode, headers }
     if (!response || !response.statusCode || response.statusCode >= 400) {
-      return res
-        .status(502)
-        .json({
-          error: `取得に失敗しました（HTTP ${response?.statusCode || "?"}）`,
-        });
+      return res.status(502).json({
+        error: `取得に失敗しました（HTTP ${response?.statusCode || "?"}）`,
+      });
     }
 
     const contentType =
